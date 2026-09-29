@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recarga de chips</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6eb;
+    --accent: #d52b1e; --accent-h: #b82318; --ok: #1f8a4c; --err: #c0392b; --warn: #b7791f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  main { padding: 20px 24px; display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .toolbar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  select, input[type=search] { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: #fff; cursor: pointer; }
+  button:hover:not(:disabled) { background: #f0f1f4; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: var(--accent-h); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .tabla-wrap { max-height: calc(100vh - 210px); overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { position: sticky; top: 0; background: #fafbfc; font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; cursor: pointer; user-select: none; }
+  tbody tr:hover { background: #fafbfc; }
+  tr.off { color: #a0a6b1; }
+  tr.sel { background: #fdf1f0 !important; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; background: #eef0f3; }
+  .tag.OK { background: #e3f4ea; color: var(--ok); }
+  .tag.SIN { background: #fbe7e5; color: var(--err); }
+  .footer { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
+  .footer .resumen { flex: 1; color: var(--muted); }
+  .footer .resumen b { color: var(--text); }
+  .panel h2 { font-size: 15px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .items { max-height: calc(100vh - 150px); overflow: auto; }
+  .item { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .item .top { display: flex; justify-content: space-between; gap: 8px; }
+  .estado { font-size: 12px; font-weight: 600; }
+  .estado.ok { color: var(--ok); } .estado.error { color: var(--err); } .estado.en.curso, .estado.en { color: var(--warn); }
+  .estado.pendiente, .estado.cancelada { color: var(--muted); }
+  .item .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .item pre { margin: 6px 0 0; font-size: 11px; background: #f7f8fa; padding: 6px 8px; border-radius: 4px; white-space: pre-wrap; max-height: 160px; overflow: auto; }
+  .vacio { padding: 24px 16px; color: var(--muted); text-align: center; }
+  .error-box { margin: 16px; padding: 10px 12px; background: #fbe7e5; color: var(--err); border-radius: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Recarga de chips · Gateways DINSTAR</h1>
+  <button id="btnRecargarSheet">↻ Actualizar desde el Sheet</button>
+</header>
+<main>
+  <section class="card">
+    <div class="toolbar">
+      <label>Gateway <select id="fGateway"><option value="">Todos</option></select></label>
+      <label>Status <select id="fStatus"><option value="">Todos</option></select></label>
+      <input type="search" id="fBuscar" placeholder="Buscar número o puerto…">
+      <label><input type="checkbox" id="fTodas"> Mostrar no recargables</label>
+    </div>
+    <div class="tabla-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:32px"><input type="checkbox" id="selTodas" title="Seleccionar visibles"></th>
+          <th data-k="gateway">GW</th><th data-k="puerto">Puerto</th><th data-k="numero">Número</th>
+          <th data-k="status">Status</th><th data-k="tipo">Tipo</th><th data-k="saldo">Saldo</th>
+          <th data-k="saldo_fecha">Consulta saldo</th><th data-k="ult_pago">Último pago</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="9" class="vacio">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="footer">
+      <div class="resumen" id="resumen"></div>
+      <label>Monto <select id="monto"></select></label>
+      <button class="primary" id="btnRecargar" disabled>Recargar seleccionadas</button>
+    </div>
+  </section>
+
+  <section class="card panel">
+    <h2>Progreso <button id="btnDetener" style="display:none">Detener</button></h2>
+    <div class="items" id="items"><div class="vacio">No hay recargas en curso.</div></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let lineas = [], seleccion = new Set(), orden = { k: "gateway", asc: true }, activo = false;
+
+const fmtMoney = n => "$" + Number(n).toLocaleString("es-AR");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function cargar() {
+  $("#tbody").innerHTML = '<tr><td colspan="9" class="vacio">Cargando…</td></tr>';
+  const r = await fetch("/api/lineas"); const d = await r.json();
+  if (d.error) { $("#tbody").innerHTML = `<tr><td colspan="9"><div class="error-box">${esc(d.error)}</div></td></tr>`; return; }
+  lineas = d.lineas;
+  const vigentes = new Set(lineas.filter(l => l.recargable).map(l => l.fila));
+  seleccion = new Set([...seleccion].filter(f => vigentes.has(f)));
+  llenarSelect("#fGateway", [...new Set(lineas.map(l => l.gateway))]);
+  llenarSelect("#fStatus", [...new Set(lineas.map(l => l.status || "(vacío)"))]);
+  if (!$("#monto").options.length) $("#monto").innerHTML = d.montos.map(m => `<option value="${m}">${fmtMoney(m)}</option>`).join("");
+  render();
+}
+
+function llenarSelect(sel, valores) {
+  const el = $(sel), actual = el.value;
+  el.innerHTML = '<option value="">Todos</option>' + valores.sort().map(v => `<option>${esc(v)}</option>`).join("");
+  el.value = valores.includes(actual) ? actual : "";
+}
+
+function visibles() {
+  const gw = $("#fGateway").value, st = $("#fStatus").value, q = $("#fBuscar").value.trim(), todas = $("#fTodas").checked;
+  return lineas.filter(l =>
+    (todas || l.recargable) && (!gw || l.gateway === gw) &&
+    (!st || (l.status || "(vacío)") === st) &&
+    (!q || l.numero.includes(q) || l.puerto === q)
+  ).sort((a, b) => {
+    let x = a[orden.k], y = b[orden.k];
+    const nx = parseFloat(x), ny = parseFloat(y);
+    if (!isNaN(nx) && !isNaN(ny) && !/\//.test(x)) { x = nx; y = ny; }
+    else if (/\d{2}\/\d{2}\/\d{4}/.test(x + y)) { x = String(x).split("/").reverse().join(""); y = String(y).split("/").reverse().join(""); }
+    return (x > y ? 1 : x < y ? -1 : 0) * (orden.asc ? 1 : -1);
+  });
+}
+
+function render() {
+  const vis = visibles();
+  $("#tbody").innerHTML = vis.length ? vis.map(l => `
+    <tr class="${l.recargable ? "" : "off"} ${seleccion.has(l.fila) ? "sel" : ""}" data-fila="${l.fila}" title="${esc(l.motivo || "")}">
+      <td><input type="checkbox" ${seleccion.has(l.fila) ? "checked" : ""} ${l.recargable && !activo ? "" : "disabled"}></td>
+      <td>${esc(l.gateway)}</td><td>${esc(l.puerto)}</td><td>${esc(l.numero) || "—"}</td>
+      <td>${l.status ? `<span class="tag ${esc(l.status.split(" ")[0])}">${esc(l.status)}</span>` : ""}</td>
+      <td>${esc(l.tipo)}</td>
+      <td class="num">${l.saldo === "" ? "" : isNaN(l.saldo) ? esc(l.saldo) : fmtMoney(l.saldo)}</td>
+      <td>${esc(l.saldo_fecha)}</td><td>${esc(l.ult_pago)}</td>
+    </tr>`).join("") : '<tr><td colspan="9" class="vacio">No hay líneas con esos filtros.</td></tr>';
+  const recVis = vis.filter(l => l.recargable);
+  $("#selTodas").checked = recVis.length > 0 && recVis.every(l => seleccion.has(l.fila));
+  $("#selTodas").disabled = activo;
+  const n = seleccion.size, monto = +$("#monto").value || 0;
+  $("#resumen").innerHTML = n ? `<b>${n}</b> línea${n > 1 ? "s" : ""} seleccionada${n > 1 ? "s" : ""} · total <b>${fmtMoney(n * monto)}</b>` : "Seleccioná las líneas a recargar";
+  $("#btnRecargar").disabled = !n || activo;
+}
+
+$("#tbody").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-fila]"); if (!tr || activo) return;
+  const l = lineas.find(x => x.fila == tr.dataset.fila); if (!l.recargable) return;
+  seleccion.has(l.fila) ? seleccion.delete(l.fila) : seleccion.add(l.fila);
+  render();
+});
+$("#selTodas").addEventListener("change", e => {
+  visibles().filter(l => l.recargable).forEach(l => e.target.checked ? seleccion.add(l.fila) : seleccion.delete(l.fila));
+  render();
+});
+document.querySelectorAll("th[data-k]").forEach(th => th.addEventListener("click", () => {
+  orden = { k: th.dataset.k, asc: orden.k === th.dataset.k ? !orden.asc : true }; render();
+}));
+["#fGateway", "#fStatus", "#fTodas", "#monto"].forEach(s => $(s).addEventListener("change", render));
+$("#fBuscar").addEventListener("input", render);
+$("#btnRecargarSheet").addEventListener("click", cargar);
+
+$("#btnRecargar").addEventListener("click", async () => {
+  const sel = lineas.filter(l => seleccion.has(l.fila)), monto = +$("#monto").value;
+  const lista = sel.map(l => `  GW${l.gateway} p${l.puerto} · ${l.numero}`).join("\n");
+  if (!confirm(`Se van a recargar ${sel.length} línea(s) con ${fmtMoney(monto)} cada una.\nTotal a cobrar en la tarjeta: ${fmtMoney(sel.length * monto)}\n\n${lista}\n\n¿Continuar?`)) return;
+  const r = await fetch("/api/recargar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filas: [...seleccion], monto }) });
+  const d = await r.json();
+  if (d.error) return alert(d.error);
+  seleccion.clear(); poll();
+});
+$("#btnDetener").addEventListener("click", async () => {
+  if (!confirm("Se termina la recarga en curso y se cancelan las pendientes. ¿Detener?")) return;
+  await fetch("/api/detener", { method: "POST" });
+});
+
+let timer;
+async function poll() {
+  clearTimeout(timer);
+  const d = await (await fetch("/api/estado")).json();
+  const eraActivo = activo; activo = d.activo;
+  $("#btnDetener").style.display = d.activo && !d.detener ? "" : "none";
+  $("#items").innerHTML = d.items.length ? d.items.map(it => {
+    const r = it.resultado || {};
+    const sub = it.estado === "ok" ? `Transacción ${esc(r.transaccion || "?")} · ${r.acreditado ? "acreditada ✔" : "sin SMS de acreditación aún"} · `
+                + (r.error_sheet ? `<span style="color:var(--err)">Sheet NO actualizado: ${esc(r.error_sheet)}</span>` : `saldo en Sheet ${fmtMoney(r.saldo)}`)
+              : it.estado === "error" ? esc(r.error || "Error") : "";
+    return `<div class="item">
+      <div class="top"><span><b>${esc(it.numero)}</b> · GW${esc(it.gateway)} p${esc(it.puerto)} · ${fmtMoney(it.monto)}</span>
+      <span class="estado ${esc(it.estado)}">${esc(it.estado.toUpperCase())}</span></div>
+      ${sub ? `<div class="sub">${sub}</div>` : ""}
+      ${it.log.length ? `<pre>${esc(it.log.join("\n"))}</pre>` : ""}
+    </div>`;
+  }).join("") : '<div class="vacio">No hay recargas en curso.</div>';
+  render();
+  if (d.activo) timer = setTimeout(poll, 2000);
+  else if (eraActivo) cargar();
+}
+
+cargar(); poll();
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+#Flujo de automatizacion para recargar los chips del gateway
+
+# Pagina de claro para recargar los chips: https://simple.claro.com.ar/inicio/auth/pin
+# Pagina de los DINSTAR para validar los CODIGOS de verificacion: 192.168.0.36 192.168.0.37
+
+# En esta pagina debemos ingresar el numero de telefono que vamos a recargar y luego nos llegara un codigo de verificacion a esa misma linea
+
+input_linea=<input data-only-numeric="" type="tel" name="number" id="number" placeholder="EJ: 1123456789" value="" class="loginform__input">
+
+# En ese apartado deberas colocar un numero de la columna 'numero' del google_sheet=url_hoja_mantenimientos_chips_gateway=https://docs.google.com/spreadsheets/d/1a4GZbhHlybw_aP_1xWcQm6pypauoQii1oaQdJ5xCyNA/edit?usp=sharing
+
+boton_continuar=<button id="pin__submit" class="loginform__button loginform__button--resolve" type="submit">Continuar</button>
+
+# Ahora nos deberia llegar un codigo de verificacion que podemos ver en el gateway en el que esta el numero, para saber que gateway es podemos filtrar el google sheet, la info esta en la columna 'IP'
+# Nos debemos loguear a la pagina de DINSTAR (en caso de que lo solicite la pagina) con user=admin, pass=admin
+
+input_username=<input type="text" name="username" id="loginname" maxlength="32" value="" class="text" style="height: 29px;width: 208px;" autocomplete="on" tabindex="1">
+input_password=<input type="password" name="password" id="loginpass" maxlength="32" value="" class="text" style="height: 29px;width: 208px;" autocomplete="on" tabindex="2">
+boton_continuar=<input class="button" style="margin-top:15px; width: 64px;height: 33px" type="submit" id="login_button" value="Login" tabindex="4">
+
+# Nos llevara al inicio de la pagina donde debemos ir al apartado SMS and USSD/SMS Inbox donde podremos ver el codigo de verificacion (verifica que la fila corresponda al puerto donde esta el numero, el puerto del numero esta en la columna 'puerto' del googlesheet)
+
+apartado_sms_inbox=<a id="HerfMenu68" onclick="href_click('HerfMenu68');" href="enSmsRecvNew.htm" target="mainframe" style="color: lightgreen; font: bold 12px Arial; text-decoration: none;">SMS Inbox</a>
+fila_del_msj=<tr align="center"><td align="center">3C</td><td align="center">722310143580124</td><td align="center">Claro</td><td align="center">2026/09/29 12:05:34</td><td align="left"><textarea id="Content4" readonly="readonly" style="width: 99%; height: 40px; word-break: break-all; overflow: hidden; border: 0px;" onfocus="text_focus(4)" onblur="text_blur(4)">[Packs Ya]
+Tu codigo de verificacion para realizar la recarga en Packs YA! es pin=9099. No lo compartas!</textarea></td></tr> #el codigo es el que dice 'pin=9099'
+
+# Ahora volvemos a la pagina de claro donde debemos colocar el codigo de verificacion
+input_codigo=<input data-only-numeric="" type="tel" class="loginform__input" name="pin" id="pin" value="" maxlength="4">
+boton_continuar=<button id="send" class="loginform__button loginform__button--resolve" type="submit"> Ingresar</button>
+
+#Verificar que la pagina a la que ingresamos es 'https://simple.claro.com.ar/inicio/'
+#Nos dirigimos al boton de recarga
+
+boton_recargar=<button class="_home-button_nwl36_11" data-testid="link-to-recharge" id="link-to-recharge"><img src="/inicio/assets/img/ar/icono-recarga.svg" alt="" style="max-width: 22px;"><div class="_title_nwl36_41">Recargar</div></button>
+
+# seleccionamos la linea a recargar
+selecciona_mi_linea=<a data-testid="link-to-recharge-current-line" class="box__milinea" href="/amounts-ar"><div class="box__milinea__icon"><img src="/inicio/assets/img/icon_mi_linea.svg" alt="mi linea"></div><div class="box__milinea__data"><span class="box__milinea__data__title">Mi línea</span><span class="box__milinea__data__number">2615583750</span><div id="milinea__arrow__button" class="box__milinea__arrow" type="button"></div></div></a>
+
+# seleccionamos el monto a recargar (el que te acabo de pasar es el monto de 2000 pesos)
+seleccionar_monto=<button type="button" class="Button-module_button__PM45p button" tabindex="0" data-testid="VTC2M0-recargar" style="border-radius: 6px;"><span class="Button-module_button__text__wL8gL">Recargar</span></button>
+
+
+#seleccionamos como queremos pagar (con tarjeta)
+seleccionar_metodo_pago=<div class="Box-module_box__hVN0g Box-module_box--align-start__flbgA Box-module_box--direction-column__jeQIq Box-module_box--justify-left__237PB _texts_rnvy7_43"><div class="_title_rnvy7_48">Con tarjeta<img class="" src="/inicio/assets/img/pagar_con_tarjeta.svg" alt="Icono tarjeta"></div><div data-testid="subtitle" class="_subtitle_rnvy7_57">Crédito o débito</div></div>
+
+#ahora debemos llenar la info de la tarjeta (los datos de la tarjeta estan en el .env)
+numero_tarjeta=<input data-testid="card-number-input" type="tel" class="inputcontainer__input newcard__inputcontainer__input  " value="">
+fecha_vencimiento=<input data-testid="due-date-input" type="tel" maxlength="5" class="inputcontainer__input newcard__inputcontainer__input--help " value="">
+codigo_seguridad=<input data-testid="security-code-input" type="tel" maxlength="3" class="inputcontainer__input newcard__inputcontainer__input--help " value="">
+titular_tarjeta=<input data-testid="cardholder-name-input" type="text" maxlength="20" class="inputcontainer__input newcard__inputcontainer__input--help " value="">
+dni_titular=<input data-testid="document-number-input" id="document-number-input" type="tel" maxlength="8" class="inputcontainer__input " value="">
+
+#Hacemos click al boton pagar
+boton_pagar=<div id="confirm-payment-button" class="button buttonanim button--primary button__content button--recargar undefined "><span class="button__text">Pagar</span><div class="loaded"><svg class="icon" width="27" height="27" viewBox="0 0 41 41"><path d="M15,27.1L7.9,20l-2.4,2.4L15,32l20.5-20.6L33.1,9L15,27.1z"></path></svg></div><div class="loaded loaded--error"><svg class="icon" width="27" height="27" viewBox="0 0 41 41"><path d="M32.5,10.9l-2.4-2.4l-9.6,9.6l-9.6-9.6l-2.4,2.4l9.6,9.6l-9.6,9.6l2.4,2.4l9.6-9.6l9.6,9.6l2.4-2.4l-9.6-9.6  L32.5,10.9z"></path></svg></div><span class="loading loading--absolute loading--invert"><svg width="30" height="6" viewBox="0 0 30 6"><circle cx="3" cy="3" r="3"></circle><circle cx="15" cy="3" r="3"></circle><circle cx="27" cy="3" r="3"></circle></svg></span></div>
+
+# Se abre una ventana encima de la pagina que nos pide otro codigo de verificacion que llego al numero que vamos a cargar, debemos pegarlo en el siguiente elemento
+htlm_ventana=<div class="Input form-control Input-module_form-control--text-field__6bLz5 form-control--default Input-module_form-control--leading-icon__2xR4R _input_1vvqo_11"><div class="Input-module_form-control__content__xOoUI"><svg class="Icon-module_icon__45JG8 Input-module_form-control__icon__In2Qv" height="21" width="21" viewBox="0 0 41 41"><path d="M33.7,4H7.3C5.5,4,4,5.5,4,7.3L4,37l6.6-6.6h23.1c1.8,0,3.3-1.5,3.3-3.3V7.3C37,5.5,35.5,4,33.7,4z M10.6,15.6 h19.8v3.3H10.6V15.6z M23.8,23.8H10.6v-3.3h13.2V23.8z M30.4,13.9H10.6v-3.3h19.8V13.9z"></path></svg><label class="Input Input-module_form-control__label__b8JZX" for="pin-modal-input">Código de verificación</label><input class="Input-module_form-control__field__gcfCK" type="text" id="pin-modal-input" name="pin-modal-input" placeholder="" data-testid="pin-modal-input" value=""></div></div>
+input_codigo=<input class="Input-module_form-control__field__gcfCK" type="text" id="pin-modal-input" name="pin-modal-input" placeholder="" data-testid="pin-modal-input" value="">
+#En este punto debemos ir denuevo a la pagina del gateway para buscar el PIN, como hicimos mas arriba
+
+boton_continuar=<div data-testid="pin-modal-continuar" class="button buttonanim button--primary button__content button--recargar  "><span class="button__text">Continuar</span><div class="loaded"><svg class="icon" width="27" height="27" viewBox="0 0 41 41"><path d="M15,27.1L7.9,20l-2.4,2.4L15,32l20.5-20.6L33.1,9L15,27.1z"></path></svg></div><div class="loaded loaded--error"><svg class="icon" width="27" height="27" viewBox="0 0 41 41"><path d="M32.5,10.9l-2.4-2.4l-9.6,9.6l-9.6-9.6l-2.4,2.4l9.6,9.6l-9.6,9.6l2.4,2.4l9.6-9.6l9.6,9.6l2.4-2.4l-9.6-9.6  L32.5,10.9z"></path></svg></div><span class="loading loading--absolute loading--invert"><svg width="30" height="6" viewBox="0 0 30 6"><circle cx="3" cy="3" r="3"></circle><circle cx="15" cy="3" r="3"></circle><circle cx="27" cy="3" r="3"></circle></svg></span></div>
+
+#Hasta aca la recarga ha sido exitosa si en la pagina aparece el msj 
+
+#Volvemos al incio en caso de que haya que recargar otro chip, nos llevva a la pagina 'https://simple.claro.com.ar/inicio/'
+boton_volver_inicio=<button class="Button-module_button__PM45p Button-module_button--link__08CkJ Button-module_button--block__qW1YP" data-testid="go-to-home-link" href=""><span class="Button-module_button__text__wL8gL">Volver al inicio</span></button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
