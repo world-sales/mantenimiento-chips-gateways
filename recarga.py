@@ -8,11 +8,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import dotenv_values
 from playwright.sync_api import sync_playwright
 
+import boveda
+
 BASE = Path(__file__).parent
-ENV = dotenv_values(BASE / ".env")
 CAPTURAS = BASE / "capturas"
 CLARO = "https://simple.claro.com.ar/inicio/auth/pin"
 MONTOS = {2000: "VTC2M0", 3000: "VTC3M0", 5000: "VTC5M0", 8000: "VTC8M0"}
@@ -64,12 +64,52 @@ class Gateway:
         raise TimeoutError(f"No llego el SMS esperado al puerto {self.puerto_n} en {timeout}s")
 
 
-def _esperar_o_rechazo(page, selector, timeout):
-    """Espera el selector; si Claro muestra 'Tu tarjeta fue rechazada' corta con un error claro."""
-    rechazo = page.get_by_text("Tu tarjeta fue rechazada")
-    page.locator(selector).or_(rechazo).first.wait_for(timeout=timeout)
-    if rechazo.count():
-        raise RuntimeError("Claro rechazo la tarjeta (no se cobro)")
+class FondosInsuficientes(RuntimeError):
+    """La tarjeta no tiene fondos: no tiene sentido seguir con el resto de la tanda."""
+
+
+# Mensajes de rechazo que puede mostrar Claro durante el pago (se buscan en el texto visible, sin mayusculas)
+RECHAZOS = [
+    (r"fondos? insuficientes?|saldo insuficiente|sin fondos", "fondos"),
+    (r"tu tarjeta fue rechazada|pago (fue )?rechazado|rechazamos", "rechazo"),
+    (r"no pudimos (procesar|realizar|completar)|no se pudo (procesar|realizar|completar)", "rechazo"),
+]
+
+
+def _esperar_o_rechazo(page, selector, timeout, carpeta=None, volver_inicio_es_error=False, rechazo_es_fondos=False):
+    """Espera el selector. Si Claro muestra un rechazo (o vuelve al inicio sin confirmar) corta con un error claro."""
+    fin = time.time() + timeout / 1000
+    while True:
+        if page.locator(selector).count() and page.locator(selector).first.is_visible():
+            return
+        try:
+            texto = page.locator("body").inner_text(timeout=2000)
+        except Exception:
+            texto = ""
+        if carpeta and texto and texto != getattr(page, "_ultimo_texto", None):
+            # Registro de cada pantalla distinta que muestra Claro, por si un mensaje aparece y desaparece rapido
+            page._ultimo_texto = texto
+            with open(carpeta / "pantallas.txt", "a", encoding="utf-8") as f:
+                f.write(f"===== {datetime.now():%H:%M:%S} {page.url}\n{texto.strip()[:3000]}\n\n")
+        for patron, tipo in RECHAZOS:
+            m = re.search(patron, texto, re.I)
+            if m:
+                if carpeta:
+                    _captura(page, carpeta, "rechazo")
+                linea = next((l.strip() for l in texto.splitlines() if m.group(0).lower() in l.lower()), m.group(0))
+                if tipo == "fondos":
+                    raise FondosInsuficientes(f"Fondos insuficientes en la tarjeta (no se cobro). Claro: '{linea}'")
+                if rechazo_es_fondos:
+                    # Claro no detalla el motivo; si rechaza despues del PIN de pago es el banco (normalmente sin fondos)
+                    raise FondosInsuficientes(f"Tarjeta rechazada al confirmar el pago, probablemente sin fondos (no se cobro). Claro: '{linea}'")
+                raise RuntimeError(f"Claro rechazo el pago (no se cobro). Claro: '{linea}'")
+        if volver_inicio_es_error and page.locator("[data-testid=home-page]").count():
+            if carpeta:
+                _captura(page, carpeta, "volvio_al_inicio")
+            raise RuntimeError("El pago no se confirmo: Claro volvio al inicio sin mostrar 'Recibimos tu pago'")
+        if time.time() > fin:
+            raise TimeoutError(f"Claro no respondio en {timeout // 1000}s esperando {selector}")
+        time.sleep(1)
 
 
 def _pin(texto):
@@ -81,8 +121,12 @@ def _captura(page, carpeta, nombre):
     try:
         page.screenshot(path=str(carpeta / f"{nombre}.png"), full_page=True)
         html = page.content()
+        try:
+            tarjeta = boveda.cargar()
+        except Exception:
+            tarjeta = {}
         for k in CAMPOS_TARJETA:
-            v = ENV.get(k) or ""
+            v = tarjeta.get(k) or ""
             for variante in {v, v.replace("/", ""), v[:20]}:
                 if len(variante) >= 3:
                     html = html.replace(variante, "***")
@@ -133,13 +177,14 @@ def recargar(numero, ip, puerto, monto=2000, log=print, headless=False):
             claro.get_by_text("Con tarjeta", exact=True).click()
 
             log("Cargando datos de la tarjeta")
-            _esperar_o_rechazo(claro, "[data-testid=card-number-input]", 30000)
+            tarjeta = boveda.cargar()
+            _esperar_o_rechazo(claro, "[data-testid=card-number-input]", 30000, carpeta)
             campos = [
-                ("card-number-input", ENV["NUMERO_TARJETA"]),
-                ("due-date-input", ENV["FECHA_VENCIMIENTO"].replace("/", "")),
-                ("security-code-input", ENV["CODIGO_SEGURIDAD"]),
-                ("cardholder-name-input", ENV["TITULAR_TARJETA"]),
-                ("document-number-input", ENV["DNI_TITULAR"]),
+                ("card-number-input", tarjeta["NUMERO_TARJETA"]),
+                ("due-date-input", tarjeta["FECHA_VENCIMIENTO"].replace("/", "")),
+                ("security-code-input", tarjeta["CODIGO_SEGURIDAD"]),
+                ("cardholder-name-input", tarjeta["TITULAR_TARJETA"]),
+                ("document-number-input", tarjeta["DNI_TITULAR"]),
             ]
             for testid, valor in campos:
                 campo = claro.locator(f"[data-testid={testid}]")
@@ -149,12 +194,13 @@ def recargar(numero, ip, puerto, monto=2000, log=print, headless=False):
 
             log("Pagando")
             claro.click("#confirm-payment-button")
-            _esperar_o_rechazo(claro, "[data-testid=pin-modal-input]", 60000)
+            _esperar_o_rechazo(claro, "[data-testid=pin-modal-input]", 60000, carpeta)
 
             log("Esperando PIN de pago en el gateway")
             claro.fill("[data-testid=pin-modal-input]", _pin(gw.esperar_nuevo(PAT_PAGO, previos[PAT_PAGO])))
             claro.click("[data-testid=pin-modal-continuar]")
-            _esperar_o_rechazo(claro, "text=Recibimos tu pago", 90000)
+            log("PIN de pago enviado, esperando confirmacion de Claro")
+            _esperar_o_rechazo(claro, "text=Recibimos tu pago", 90000, carpeta, volver_inicio_es_error=True, rechazo_es_fondos=True)
             m = re.search(r"PRT-[\w-]+", claro.locator("body").inner_text())
             res.update(ok=True, transaccion=m.group(0) if m else None)
             _captura(claro, carpeta, "resultado")
@@ -169,6 +215,7 @@ def recargar(numero, ip, puerto, monto=2000, log=print, headless=False):
                 log("No llego el SMS de acreditacion en 90s (el pago si se hizo)")
         except Exception as e:
             res["error"] = str(e).splitlines()[0]
+            res["sin_fondos"] = isinstance(e, FondosInsuficientes)
             log(f"ERROR: {res['error']}")
             _captura(claro, carpeta, "error")
         finally:

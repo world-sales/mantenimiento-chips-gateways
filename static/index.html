@@ -189,7 +189,7 @@ async function poll() {
     const r = it.resultado || {};
     const sub = it.estado === "ok" ? `Transacción ${esc(r.transaccion || "?")} · ${r.acreditado ? "acreditada ✔" : "sin SMS de acreditación aún"} · `
                 + (r.error_sheet ? `<span style="color:var(--err)">Sheet NO actualizado: ${esc(r.error_sheet)}</span>` : `saldo en Sheet ${fmtMoney(r.saldo)}`)
-              : it.estado === "error" ? esc(r.error || "Error") : "";
+              : it.estado === "error" || it.estado === "cancelada" ? esc(r.error || "Error") : "";
     return `<div class="item">
       <div class="top"><span><b>${esc(it.numero)}</b> · GW${esc(it.gateway)} p${esc(it.puerto)} · ${fmtMoney(it.monto)}</span>
       <span class="estado ${esc(it.estado)}">${esc(it.estado.toUpperCase())}</span></div>
@@ -197,6 +197,8 @@ async function poll() {
       ${it.log.length ? `<pre>${esc(it.log.join("\n"))}</pre>` : ""}
     </div>`;
   }).join("") : '<div class="vacio">No hay recargas en curso.</div>';
+  if (d.motivo_detencion) $("#items").insertAdjacentHTML("afterbegin",
+    `<div class="error-box">⚠ Tanda detenida: ${esc(d.items.find(i => i.resultado && i.resultado.sin_fondos)?.resultado.error || d.motivo_detencion)}</div>`);
   render();
   if (d.activo) timer = setTimeout(poll, 2000);
   else if (eraActivo) cargar();

@@ -2,9 +2,21 @@
 
 Uso: python app.py  ->  abrir http://127.0.0.1:5000
 """
+import json
+import logging
+import sys
 import threading
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+BASE = Path(__file__).parent
+LOGS = BASE / "logs"
+LOGS.mkdir(exist_ok=True)
+
+# Con pythonw (arranque en segundo plano) no hay consola: stdout/stderr van a un archivo
+if sys.stdout is None or sys.stderr is None:
+    sys.stdout = sys.stderr = open(LOGS / "consola.log", "a", encoding="utf-8", buffering=1)
 
 import gspread
 from dotenv import dotenv_values
@@ -12,13 +24,32 @@ from flask import Flask, jsonify, request, send_file
 
 from recarga import MONTOS, recargar
 
-BASE = Path(__file__).parent
 ENV = dotenv_values(BASE / ".env")
 CREDENCIALES = next(BASE.glob("accesos-world-sales-*.json"))
 
+# recargas.log: cada paso de cada recarga (legible). recargas.jsonl: una linea por recarga con el resultado final.
+logger = logging.getLogger("recargas")
+logger.setLevel(logging.INFO)
+_handler = RotatingFileHandler(LOGS / "recargas.log", maxBytes=5_000_000, backupCount=10, encoding="utf-8")
+_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+logger.addHandler(_handler)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)  # no loguear el polling de /api/estado
+
+
+def registrar_resultado(item):
+    r = item["resultado"] or {}
+    fila = {
+        "fecha": datetime.now().isoformat(timespec="seconds"),
+        **{k: item[k] for k in ("fila", "gateway", "puerto", "numero", "monto", "estado")},
+        **{k: r.get(k) for k in ("transaccion", "acreditado", "saldo", "error", "sin_fondos", "error_sheet", "carpeta")},
+    }
+    with open(LOGS / "recargas.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(fila, ensure_ascii=False) + "\n")
+
+
 app = Flask(__name__)
 lock = threading.Lock()
-trabajo = {"activo": False, "detener": False, "items": []}
+trabajo = {"activo": False, "detener": False, "motivo_detencion": None, "items": []}
 
 
 def hoja():
@@ -83,19 +114,27 @@ def leer_sheet():
 
 
 def worker():
+    logger.info("=== Tanda iniciada: %d lineas: %s", len(trabajo["items"]),
+                ", ".join(f"{i['numero']}(GW{i['gateway']} p{i['puerto']} ${i['monto']})" for i in trabajo["items"]))
     for item in trabajo["items"]:
         if trabajo["detener"]:
             item["estado"] = "cancelada"
+            item["resultado"] = {"error": trabajo.get("motivo_detencion") or "Detenida por el usuario"}
+            logger.info("[%s] cancelada: %s", item["numero"], item["resultado"]["error"])
+            registrar_resultado(item)
             continue
         item["estado"] = "en curso"
         item["inicio"] = datetime.now().strftime("%H:%M:%S")
 
         def log(msg, item=item):
             item["log"].append(f"{datetime.now():%H:%M:%S} {msg}")
+            nivel = logging.ERROR if "ERROR" in msg else logging.INFO
+            logger.log(nivel, "[%s GW%s p%s] %s", item["numero"], item["gateway"], item["puerto"], msg)
 
         try:
             res = recargar(item["numero"], item["ip"], item["puerto"], item["monto"], log=log)
         except Exception as e:
+            logger.exception("[%s] excepcion no controlada", item["numero"])
             res = {"ok": False, "error": str(e)}
         if res.get("ok"):
             try:
@@ -106,6 +145,11 @@ def worker():
                 res["error_sheet"] = str(e)
                 log(f"ERROR al actualizar el Sheet: {e}")
         item.update(resultado=res, estado="ok" if res.get("ok") else "error")
+        registrar_resultado(item)
+        if res.get("sin_fondos"):
+            trabajo.update(detener=True, motivo_detencion="No se intento: la tarjeta fue rechazada por falta de fondos")
+            logger.error("Tanda detenida: fondos insuficientes en la tarjeta")
+    logger.info("=== Tanda terminada: %s", ", ".join(f"{i['numero']}={i['estado']}" for i in trabajo["items"]))
     trabajo["activo"] = False
 
 
@@ -141,7 +185,7 @@ def api_recargar():
                           "monto": monto, "estado": "pendiente", "log": [], "resultado": None})
         if not items:
             return jsonify({"error": "No se selecciono ninguna linea"}), 400
-        trabajo.update(activo=True, detener=False, items=items)
+        trabajo.update(activo=True, detener=False, motivo_detencion=None, items=items)
         threading.Thread(target=worker, daemon=True).start()
     return jsonify({"ok": True})
 
@@ -158,4 +202,5 @@ def api_estado():
 
 
 if __name__ == "__main__":
+    logger.info("Servidor iniciado")
     app.run(host="127.0.0.1", port=5000, debug=False)

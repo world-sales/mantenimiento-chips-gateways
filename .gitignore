@@ -2,3 +2,5 @@
 *.json
 __pycache__/
 capturas/
+logs/
+tarjeta.dat
